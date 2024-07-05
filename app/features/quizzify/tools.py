@@ -17,7 +17,9 @@ from langchain_chroma import Chroma
 from langchain_google_vertexai import VertexAIEmbeddings, VertexAI
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough, RunnableParallel
+from youtube_transcript_api import YouTubeTranscriptApi
 from langchain_core.output_parsers import JsonOutputParser
+from langchain.document_loaders import YoutubeLoader
 from langchain_core.pydantic_v1 import BaseModel, Field
 from docx import Document as docu
 
@@ -52,6 +54,77 @@ class RAGRunnable:
     
     def __call__(self, *args, **kwargs):
         return self.func(*args, **kwargs)
+
+class YouTubeTranscriptLoader:
+    def __init__(self, verbose=False):
+        self.verbose = verbose
+
+
+    def fetch_transcript(self, video_id: str) -> str:
+        try:
+            transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+            transcript_text = '\n'.join([transcript['text'] for transcript in transcript_list])
+            return transcript_text
+       
+        except Exception as e:
+            print(f"Error fetching transcript for video {video_id}: {e}")
+            return ""
+
+
+    def load(self, files: List[ToolFile]):
+        documents = []
+
+
+        for file in files:
+            try:
+                url = file.url
+                video_id = YoutubeLoader.extract_video_id(url)
+                transcript_text = self.fetch_transcript(video_id)
+               
+                if transcript_text:
+                    documents.append(Document(page_content=transcript_text, metadata={'video_id': video_id}))
+                    if self.verbose:
+                        print(f"Fetched transcript for video {video_id}")
+
+
+                else:
+                    print(f"No transcript found for video {video_id}")
+
+
+            except Exception as e:
+                print(f"Error loading video {video_id}: {e}")
+       
+        return documents
+
+
+class uLoader:
+    def __init__(self, verbose = False):
+        self.verbose = verbose
+
+
+    def load(self, tool_files: List[ToolFile]):
+        documents = []
+        youtube_files = []
+       
+        for file in tool_files:
+            url = file.url
+           
+
+
+            if url.lower().startswith("https://youtu.be/"):
+                youtube_files.append(file)
+   
+        yt_loader = YouTubeTranscriptLoader(verbose=self.verbose)
+        docs = yt_loader.load(youtube_files)
+        if self.verbose:
+            print(f"Documents from YouTube loader: {len(docs)}")
+        documents.extend(docs)
+        if self.verbose:
+            print(f"Total documents: {len(documents)}")
+        return documents
+
+
+
 
 class UploadPDFLoader:
     def __init__(self, files: List[UploadFile]):
@@ -317,7 +390,8 @@ class URLLoader:
 class RAGpipeline:
     def __init__(self, loader=None, splitter=None, vectorstore_class=None, embedding_model=None, verbose=False):
         default_config = {
-            "loader": URLLoader(verbose = verbose), # Creates instance on call with verbosity
+            "loader": URLLoader(verbose = verbose),
+            "loader": uLoader(verbose = verbose),# Creates instance on call with verbosity
             "splitter": RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100),
             "vectorstore_class": Chroma,
             "embedding_model": VertexAIEmbeddings(model='textembedding-gecko')
